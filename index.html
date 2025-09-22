@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aura Installer</title>
+  <!-- Bootstrap CSS -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    crossorigin="anonymous"
+  />
+</head>
+<body>
+  <!-- Navbar Header -->
+  <nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <div class="container">
+      <a class="navbar-brand" href="#">Aura Software Installer</a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="container my-5">
+    <div class="row justify-content-center">
+      <div class="col-lg-8">
+        <img src="img/aura.jpg" class="img-fluid" alt="Responsive image">
+
+        <p class="lead">
+          Aura is a smart weather forecast display for your home. It's open
+          source, costs less than $20 to build, and assembles in seconds
+          without any wiring or soldering.
+        </p>
+        <p>
+          You can find the <a href="https://makerworld.com/en/models/1382304-aura-smart-weather-forecast-display">full project instructions here</a>. This page is
+          only for installing the software on the ESP32 board.
+        </p>
+        <p>
+          If you have a laser cutter, <a href="https://makerworld.com/en/models/1751995-aura-laser-edition-smart-weather-forecast-display">check out the Laser Edition of this project</a>.
+        </p>
+        <h2 class="h4 mt-5 mb-3">Software Installation Instructions</h2>
+        <ol class="list-group list-group-numbered mb-4">
+          <li class="list-group-item">
+            Connect your ESP32-2432S028R ILI9341 board (with 2.8in screen) to
+            your computer's USB port.
+          </li>
+          <li class="list-group-item">
+            Click the 'Connect' button below. <strong>This will only work in Google Chrome or
+            Microsoft Edge.</strong>
+          </li>
+          <li class="list-group-item">
+            When prompted to choose a port, choose “USB Serial”.
+          </li>
+          <li class="list-group-item">
+            Click 'Install Aura'.
+          </li>
+        </ol>
+
+        <!-- Install Button -->
+        <div class="text-center">
+          <script
+            type="module"
+            src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+          ></script>
+          <esp-web-install-button manifest="https://surrey-homeware.github.io/aura-installer/bin/manifest.json"></esp-web-install-button>
+        </div>
+
+        <h2 class="h4 mt-5 mb-3">Inverted Colors Fix</h2>
+        <p>
+          Some ESP32 boards store colors differently in RAM, so the screen shows up with the wrong colors.
+          If you have that issue, install this version instead.
+        </p>
+          <esp-web-install-button manifest="https://surrey-homeware.github.io/aura-installer/bin/manifest-inverted.json">
+            <button slot="activate">Install fix for inverted colors</button>
+          </esp-web-install-button>
+
+		<p>&nbsp;</p>
+        <h4>Help! Installation gets stuck at "Preparing to Install."</h4>
+        <p>
+        	It should not take very long to get past the "Preparing to Install" step. If it is stuck, it means that the board
+        	is not connected to the computer correctly or the board is not going into update mode.
+        </p>
+        <p>
+	        There are a variety of boards that have been produced and they may need slightly different approaches. Here
+	        are the most common solutions:
+        </p>
+        <ol>
+        	<li>In the list of ports, make sure you choose the one that says "USB Serial."
+        	<li>Some boards need to be forced into flash mode by <b>holding down the <a target="_blank" href="https://i0.wp.com/randomnerdtutorials.com/wp-content/uploads/2024/03/ESP32-Cheap-Yellow-Display-CYD-Board-ESP32-2432S028R-back-labeled.jpg">RST button</a> while starting the installation.</b></li>
+        	<li>Some boards need to be forced into flash mode by <b>pressing and holding <a target="_blank" href="https://i0.wp.com/randomnerdtutorials.com/wp-content/uploads/2024/03/ESP32-Cheap-Yellow-Display-CYD-Board-ESP32-2432S028R-back-labeled.jpg">BOOT button</a>, pressing and releasing the RST button, then finally release thing BOOT button.</b></li>
+        	<li>Some boards with two USB ports (USB-C and USB Micro) will only accept being flashed by one of the ports, so try both. While many USB-C boards will flash just fine via the USB-C connection, some only will update over the USB Micro connection.</li>
+        	<li>Several users have reported that the cheap USB cable included with the board didn't work, but using a different USB cable worked.</li>
+        </ol>
+		Note: The linked picture of the back of the board is from <a target="_blank" href="https://randomnerdtutorials.com/esp32-cheap-yellow-display-cyd-pinout-esp32-2432s028r/">Random Nerd Tutorial's article</a>. Their site is great if you want to learn more about these boards.
+
+        <h2 class="h5 mt-5 mb-3">Software Updates</h2>
+        <p>To upgrade to the latest version, just re-install the software above.</p>
+        <ol class="list-group mb-4">
+          <li class="list-group-item">
+            v1.4 - Night mode (auto-dim screen after 10pm), new translations for Swedish, Turksih, and Italian.
+          </li>
+          <li class="list-group-item">
+            v1.3.1 - Fix a missing translation string for "Feels like"
+          </li>
+          <li class="list-group-item">
+            v1.3 - Language selection and support for Spanish, French, and German. Ability to dim screen more.
+          </li>
+          <li class="list-group-item">
+            v1.2 - 12/24 hour time display option, fixed a bug with hourly forecast showing sun vs. moon icons at the wrong times.
+          </li>
+          <li class="list-group-item">
+            v1.1 - Added the current time to the screen.
+          </li>
+          <li class="list-group-item">
+            v1.0 - Initial release.
+          </li>
+        </ol>	
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS Bundle (includes Popper) -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+    crossorigin="anonymous"
+  ></script>
+</body>
+</html>
