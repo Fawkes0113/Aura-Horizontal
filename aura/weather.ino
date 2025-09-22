@@ -67,7 +67,7 @@ int x, y, z;
 // Preferences
 static Preferences prefs;
 static bool use_fahrenheit = false;
-static bool use_24_hour = false; 
+static bool use_24_hour = false;
 static bool use_night_mode = false;
 static char latitude[16] = LATITUDE_DEFAULT;
 static char longitude[16] = LONGITUDE_DEFAULT;
@@ -181,6 +181,13 @@ void deactivate_night_mode();
 void check_for_night_mode();
 void handle_temp_screen_wakeup_timeout(lv_timer_t *timer);
 
+// Forward declarations for event handlers to satisfy the compiler
+void daily_cb(lv_event_t *e);
+void hourly_cb(lv_event_t *e);
+void do_geocode_query(const char *q);
+static void reset_confirm_yes_cb(lv_event_t *e);
+static void reset_confirm_no_cb(lv_event_t *e);
+
 
 int day_of_week(int y, int m, int d) {
   static const int t[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
@@ -199,12 +206,13 @@ String hour_of_day(int hour) {
       return String(hour);
   } else {
     if(hour == 0)   return String("12") + strings->am;
-    if(hour == 12)  return String(strings->noon);
+    if(hour == 12)  return String("12") + strings->pm;
 
     bool isMorning = (hour < 12);
     String suffix = isMorning ? strings->am : strings->pm;
 
     int displayHour = hour % 12;
+    if (displayHour == 0) displayHour = 12;
 
     return String(displayHour) + suffix;
   }
@@ -285,7 +293,7 @@ void touchscreen_read(lv_indev_t *indev, lv_indev_data_t *data) {
     if (night_mode_active) {
       // Temporarily wake the screen for 15 seconds
       analogWrite(LCD_BACKLIGHT_PIN, prefs.getUInt("brightness", 128));
-    
+
       if (temp_screen_wakeup_timer) {
         lv_timer_del(temp_screen_wakeup_timer);
       }
@@ -310,6 +318,9 @@ void touchscreen_read(lv_indev_t *indev, lv_indev_data_t *data) {
     data->state = LV_INDEV_STATE_RELEASED;
   }
 }
+
+void wifi_splash_screen(); // Forward declaration
+void apModeCallback(WiFiManager *mgr); // Forward declaration
 
 void setup() {
   Serial.begin(115200);
@@ -411,9 +422,10 @@ void create_ui() {
   // Trigger settings screen on touch
   lv_obj_add_event_cb(scr, screen_event_cb, LV_EVENT_CLICKED, NULL);
 
+  // --- Left Side (Current Weather) ---
   img_today_icon = lv_img_create(scr);
   lv_img_set_src(img_today_icon, &image_partly_cloudy);
-  lv_obj_align(img_today_icon, LV_ALIGN_TOP_MID, -64, 4);
+  lv_obj_align(img_today_icon, LV_ALIGN_TOP_LEFT, 5, 20);
 
   static lv_style_t default_label_style;
   lv_style_init(&default_label_style);
@@ -425,31 +437,32 @@ void create_ui() {
   lbl_today_temp = lv_label_create(scr);
   lv_label_set_text(lbl_today_temp, strings->temp_placeholder);
   lv_obj_set_style_text_font(lbl_today_temp, get_font_42(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align(lbl_today_temp, LV_ALIGN_TOP_MID, 45, 25);
+  lv_obj_align(lbl_today_temp, LV_ALIGN_TOP_LEFT, 10, 90);
   lv_obj_add_style(lbl_today_temp, &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lbl_today_feels_like = lv_label_create(scr);
   lv_label_set_text(lbl_today_feels_like, strings->feels_like_temp);
   lv_obj_set_style_text_font(lbl_today_feels_like, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(lbl_today_feels_like, lv_color_hex(0xe4ffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align(lbl_today_feels_like, LV_ALIGN_TOP_MID, 45, 75);
+  lv_obj_align(lbl_today_feels_like, LV_ALIGN_TOP_LEFT, 10, 150);
 
+  // --- Right Side (Forecast) ---
   lbl_forecast = lv_label_create(scr);
   lv_label_set_text(lbl_forecast, strings->seven_day_forecast);
   lv_obj_set_style_text_font(lbl_forecast, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_color(lbl_forecast, lv_color_hex(0xe4ffff), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align(lbl_forecast, LV_ALIGN_TOP_LEFT, 20, 110);
+  lv_obj_align(lbl_forecast, LV_ALIGN_TOP_LEFT, 150, 5);
 
   box_daily = lv_obj_create(scr);
-  lv_obj_set_size(box_daily, 220, 180);
-  lv_obj_align(box_daily, LV_ALIGN_TOP_LEFT, 10, 135);
+  lv_obj_set_size(box_daily, 160, 220); // Adjusted size
+  lv_obj_align(box_daily, LV_ALIGN_TOP_LEFT, 150, 25);
   lv_obj_set_style_bg_color(box_daily, lv_color_hex(0x5e9bc8), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(box_daily, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_radius(box_daily, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(box_daily, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_clear_flag(box_daily, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scrollbar_mode(box_daily, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_pad_all(box_daily, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(box_daily, 5, LV_PART_MAIN);
   lv_obj_set_style_pad_gap(box_daily, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(box_daily, daily_cb, LV_EVENT_CLICKED, NULL);
 
@@ -461,31 +474,31 @@ void create_ui() {
 
     lv_obj_add_style(lbl_daily_day[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_daily_day[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_daily_day[i], LV_ALIGN_TOP_LEFT, 2, i * 24);
+    lv_obj_align(lbl_daily_day[i], LV_ALIGN_TOP_LEFT, 2, i * 30);
 
     lv_obj_add_style(lbl_daily_high[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_daily_high[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_daily_high[i], LV_ALIGN_TOP_RIGHT, 0, i * 24);
+    lv_obj_align(lbl_daily_high[i], LV_ALIGN_TOP_RIGHT, 0, i * 30);
 
     lv_label_set_text(lbl_daily_low[i], "");
     lv_obj_set_style_text_color(lbl_daily_low[i], lv_color_hex(0xb9ecff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_daily_low[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_daily_low[i], LV_ALIGN_TOP_RIGHT, -50, i * 24);
+    lv_obj_align(lbl_daily_low[i], LV_ALIGN_TOP_RIGHT, -45, i * 30);
 
     lv_img_set_src(img_daily[i], &icon_partly_cloudy);
-    lv_obj_align(img_daily[i], LV_ALIGN_TOP_LEFT, 72, i * 24);
+    lv_obj_align(img_daily[i], LV_ALIGN_TOP_LEFT, 50, i * 30);
   }
 
   box_hourly = lv_obj_create(scr);
-  lv_obj_set_size(box_hourly, 220, 180);
-  lv_obj_align(box_hourly, LV_ALIGN_TOP_LEFT, 10, 135);
+  lv_obj_set_size(box_hourly, 160, 220); // Adjusted size
+  lv_obj_align(box_hourly, LV_ALIGN_TOP_LEFT, 150, 25);
   lv_obj_set_style_bg_color(box_hourly, lv_color_hex(0x5e9bc8), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(box_hourly, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_radius(box_hourly, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(box_hourly, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_clear_flag(box_hourly, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scrollbar_mode(box_hourly, LV_SCROLLBAR_MODE_OFF);
-  lv_obj_set_style_pad_all(box_hourly, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(box_hourly, 5, LV_PART_MAIN);
   lv_obj_set_style_pad_gap(box_hourly, 0, LV_PART_MAIN);
   lv_obj_add_event_cb(box_hourly, hourly_cb, LV_EVENT_CLICKED, NULL);
 
@@ -497,19 +510,19 @@ void create_ui() {
 
     lv_obj_add_style(lbl_hourly[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_hourly[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_hourly[i], LV_ALIGN_TOP_LEFT, 2, i * 24);
+    lv_obj_align(lbl_hourly[i], LV_ALIGN_TOP_LEFT, 2, i * 30);
 
     lv_obj_add_style(lbl_hourly_temp[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_hourly_temp[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_hourly_temp[i], LV_ALIGN_TOP_RIGHT, 0, i * 24);
+    lv_obj_align(lbl_hourly_temp[i], LV_ALIGN_TOP_RIGHT, 0, i * 30);
 
     lv_label_set_text(lbl_precipitation_probability[i], "");
     lv_obj_set_style_text_color(lbl_precipitation_probability[i], lv_color_hex(0xb9ecff), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_font(lbl_precipitation_probability[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(lbl_precipitation_probability[i], LV_ALIGN_TOP_RIGHT, -55, i * 24);
+    lv_obj_align(lbl_precipitation_probability[i], LV_ALIGN_TOP_RIGHT, -45, i * 30);
 
     lv_img_set_src(img_hourly[i], &icon_partly_cloudy);
-    lv_obj_align(img_hourly[i], LV_ALIGN_TOP_LEFT, 72, i * 24);
+    lv_obj_align(img_hourly[i], LV_ALIGN_TOP_LEFT, 50, i * 30);
   }
 
   lv_obj_add_flag(box_hourly, LV_OBJ_FLAG_HIDDEN);
@@ -648,6 +661,8 @@ static void reset_confirm_no_cb(lv_event_t *e) {
   lv_obj_del(mbox);
 }
 
+void create_location_dialog(); // Forward declaration
+
 static void change_location_event_cb(lv_event_t *e) {
   if (location_win) return;
 
@@ -662,7 +677,7 @@ void create_location_dialog() {
   lv_obj_set_style_height(header, 30, 0);
   lv_obj_set_style_text_font(title, get_font_16(), 0);
   lv_obj_set_style_margin_left(title, 10, 0);
-  lv_obj_set_size(location_win, 240, 320);
+  lv_obj_set_size(location_win, 320, 240); // Full screen
   lv_obj_center(location_win);
 
   lv_obj_t *cont = lv_win_get_content(location_win);
@@ -675,7 +690,7 @@ void create_location_dialog() {
   loc_ta = lv_textarea_create(cont);
   lv_textarea_set_one_line(loc_ta, true);
   lv_textarea_set_placeholder_text(loc_ta, strings->city_placeholder);
-  lv_obj_set_width(loc_ta, 170);
+  lv_obj_set_width(loc_ta, 240);
   lv_obj_align_to(loc_ta, lbl, LV_ALIGN_OUT_RIGHT_MID, 5, 0);
 
   lv_obj_add_event_cb(loc_ta, ta_event_cb, LV_EVENT_CLICKED, kb);
@@ -687,7 +702,7 @@ void create_location_dialog() {
   lv_obj_align(lbl2, LV_ALIGN_TOP_LEFT, 5, 50);
 
   results_dd = lv_dropdown_create(cont);
-  lv_obj_set_width(results_dd, 200);
+  lv_obj_set_width(results_dd, 280);
   lv_obj_align(results_dd, LV_ALIGN_TOP_LEFT, 5, 70);
   lv_obj_set_style_text_font(results_dd, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(results_dd, get_font_14(), LV_PART_SELECTED | LV_STATE_DEFAULT);
@@ -699,8 +714,8 @@ void create_location_dialog() {
   lv_obj_clear_flag(results_dd, LV_OBJ_FLAG_CLICKABLE);
 
   btn_close_loc = lv_btn_create(cont);
-  lv_obj_set_size(btn_close_loc, 80, 40);
-  lv_obj_align(btn_close_loc, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_set_size(btn_close_loc, 100, 40);
+  lv_obj_align(btn_close_loc, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
 
   lv_obj_add_event_cb(btn_close_loc, location_save_event_cb, LV_EVENT_CLICKED, &geoResults);
   lv_obj_set_style_bg_color(btn_close_loc, lv_palette_main(LV_PALETTE_GREY), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -714,8 +729,8 @@ void create_location_dialog() {
   lv_obj_center(lbl_close);
 
   lv_obj_t *btn_cancel_loc = lv_btn_create(cont);
-  lv_obj_set_size(btn_cancel_loc, 80, 40);
-  lv_obj_align_to(btn_cancel_loc, btn_close_loc, LV_ALIGN_OUT_LEFT_MID, -5, 0);
+  lv_obj_set_size(btn_cancel_loc, 100, 40);
+  lv_obj_align_to(btn_cancel_loc, btn_close_loc, LV_ALIGN_OUT_LEFT_MID, -10, 0);
   lv_obj_add_event_cb(btn_cancel_loc, location_cancel_event_cb, LV_EVENT_CLICKED, &geoResults);
 
   lv_obj_t *lbl_cancel = lv_label_create(btn_cancel_loc);
@@ -727,7 +742,7 @@ void create_location_dialog() {
 void create_settings_window() {
   if (settings_win) return;
 
-  int vertical_element_spacing = 21;
+  int vertical_element_spacing = 28;
 
   const LocalizedStrings* strings = get_strings(current_language);
   settings_win = lv_win_create(lv_scr_act());
@@ -739,8 +754,8 @@ void create_settings_window() {
   lv_obj_set_style_text_font(title, get_font_16(), 0);
   lv_obj_set_style_margin_left(title, 10, 0);
 
+  lv_obj_set_size(settings_win, 320, 240); // Full screen
   lv_obj_center(settings_win);
-  lv_obj_set_width(settings_win, 240);
 
   lv_obj_t *cont = lv_win_get_content(settings_win);
 
@@ -748,12 +763,12 @@ void create_settings_window() {
   lv_obj_t *lbl_b = lv_label_create(cont);
   lv_label_set_text(lbl_b, strings->brightness);
   lv_obj_set_style_text_font(lbl_b, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align(lbl_b, LV_ALIGN_TOP_LEFT, 0, 5);
+  lv_obj_align(lbl_b, LV_ALIGN_TOP_LEFT, 5, 5);
   lv_obj_t *slider = lv_slider_create(cont);
   lv_slider_set_range(slider, 1, 255);
   uint32_t saved_b = prefs.getUInt("brightness", 128);
   lv_slider_set_value(slider, saved_b, LV_ANIM_OFF);
-  lv_obj_set_width(slider, 100);
+  lv_obj_set_width(slider, 180);
   lv_obj_align_to(slider, lbl_b, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
   lv_obj_add_event_cb(slider, [](lv_event_t *e){
@@ -770,7 +785,7 @@ void create_settings_window() {
   lv_obj_align_to(lbl_night_mode, lbl_b, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
 
   night_mode_switch = lv_switch_create(cont);
-  lv_obj_align_to(night_mode_switch, lbl_night_mode, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  lv_obj_align_to(night_mode_switch, lbl_night_mode, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
   if (use_night_mode) {
     lv_obj_add_state(night_mode_switch, LV_STATE_CHECKED);
   } else {
@@ -782,25 +797,25 @@ void create_settings_window() {
   lv_obj_t *lbl_u = lv_label_create(cont);
   lv_label_set_text(lbl_u, strings->use_fahrenheit);
   lv_obj_set_style_text_font(lbl_u, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align_to(lbl_u, lbl_night_mode, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+  lv_obj_align_to(lbl_u, night_mode_switch, LV_ALIGN_OUT_RIGHT_MID, 15, 0);
 
   unit_switch = lv_switch_create(cont);
-  lv_obj_align_to(unit_switch, lbl_u, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  lv_obj_align_to(unit_switch, lbl_u, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
   if (use_fahrenheit) {
     lv_obj_add_state(unit_switch, LV_STATE_CHECKED);
   } else {
     lv_obj_remove_state(unit_switch, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(unit_switch, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
-
+  
   // 24-hr time switch
   lv_obj_t *lbl_24hr = lv_label_create(cont);
   lv_label_set_text(lbl_24hr, strings->use_24hr);
   lv_obj_set_style_text_font(lbl_24hr, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align_to(lbl_24hr, unit_switch, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  lv_obj_align_to(lbl_24hr, lbl_night_mode, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
 
   clock_24hr_switch = lv_switch_create(cont);
-  lv_obj_align_to(clock_24hr_switch, lbl_24hr, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  lv_obj_align_to(clock_24hr_switch, lbl_24hr, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
   if (use_24_hour) {
     lv_obj_add_state(clock_24hr_switch, LV_STATE_CHECKED);
   } else {
@@ -812,12 +827,12 @@ void create_settings_window() {
   lv_obj_t *lbl_loc_l = lv_label_create(cont);
   lv_label_set_text(lbl_loc_l, strings->location);
   lv_obj_set_style_text_font(lbl_loc_l, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align_to(lbl_loc_l, lbl_u, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+  lv_obj_align_to(lbl_loc_l, lbl_24hr, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
 
   lbl_loc = lv_label_create(cont);
   lv_label_set_text(lbl_loc, location.c_str());
   lv_obj_set_style_text_font(lbl_loc, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_align_to(lbl_loc, lbl_loc_l, LV_ALIGN_OUT_RIGHT_MID, 5, 0);
+  lv_obj_align_to(lbl_loc, lbl_loc_l, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
 
   // Language selection
   lv_obj_t *lbl_lang = lv_label_create(cont);
@@ -828,7 +843,7 @@ void create_settings_window() {
   language_dropdown = lv_dropdown_create(cont);
   lv_dropdown_set_options(language_dropdown, "English\nEspañol\nDeutsch\nFrançais\nTürkçe\nSvenska\nItaliano");
   lv_dropdown_set_selected(language_dropdown, current_language);
-  lv_obj_set_width(language_dropdown, 120);
+  lv_obj_set_width(language_dropdown, 150);
   lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_SELECTED | LV_STATE_DEFAULT);
   lv_obj_t *list = lv_dropdown_get_list(language_dropdown);
@@ -838,9 +853,8 @@ void create_settings_window() {
 
   // Location search button
   lv_obj_t *btn_change_loc = lv_btn_create(cont);
-  lv_obj_align_to(btn_change_loc, lbl_lang, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
-
-  lv_obj_set_size(btn_change_loc, 100, 40);
+  lv_obj_align(btn_change_loc, LV_ALIGN_BOTTOM_LEFT, 5, -5);
+  lv_obj_set_size(btn_change_loc, 110, 40);
   lv_obj_add_event_cb(btn_change_loc, change_location_event_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_t *lbl_chg = lv_label_create(btn_change_loc);
   lv_label_set_text(lbl_chg, strings->location_btn);
@@ -861,11 +875,9 @@ void create_settings_window() {
   lv_obj_set_style_bg_color(btn_reset, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(btn_reset, lv_palette_darken(LV_PALETTE_RED, 1), LV_PART_MAIN | LV_STATE_PRESSED);
   lv_obj_set_style_text_color(btn_reset, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_size(btn_reset, 100, 40);
-  lv_obj_align_to(btn_reset, btn_change_loc, LV_ALIGN_OUT_RIGHT_MID, 12, 0);
-
+  lv_obj_set_size(btn_reset, 110, 40);
+  lv_obj_align_to(btn_reset, btn_change_loc, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
   lv_obj_add_event_cb(btn_reset, reset_wifi_event_handler, LV_EVENT_CLICKED, nullptr);
-
   lv_obj_t *lbl_reset = lv_label_create(btn_reset);
   lv_label_set_text(lbl_reset, strings->reset_wifi);
   lv_obj_set_style_text_font(lbl_reset, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -874,15 +886,14 @@ void create_settings_window() {
   // Close Settings button
   btn_close_obj = lv_btn_create(cont);
   lv_obj_set_size(btn_close_obj, 80, 40);
-  lv_obj_align(btn_close_obj, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_align(btn_close_obj, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
   lv_obj_add_event_cb(btn_close_obj, settings_event_handler, LV_EVENT_CLICKED, NULL);
-
-  // Cancel button
   lv_obj_t *lbl_btn = lv_label_create(btn_close_obj);
   lv_label_set_text(lbl_btn, strings->close);
   lv_obj_set_style_text_font(lbl_btn, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_center(lbl_btn);
 }
+
 
 static void settings_event_handler(lv_event_t *e) {
   lv_event_code_t code = lv_event_get_code(e);
@@ -905,7 +916,7 @@ static void settings_event_handler(lv_event_t *e) {
     // Update the UI immediately to reflect language change
     lv_obj_del(settings_win);
     settings_win = nullptr;
-    
+
     // Save preferences and recreate UI with new language
     prefs.putBool("useFahrenheit", use_fahrenheit);
     prefs.putBool("use24Hour", use_24_hour);
@@ -914,7 +925,7 @@ static void settings_event_handler(lv_event_t *e) {
 
     lv_keyboard_set_textarea(kb, nullptr);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-    
+
     // Recreate the main UI with the new language
     lv_obj_clean(lv_scr_act());
     create_ui();
@@ -944,7 +955,7 @@ bool night_mode_should_be_active() {
   if (!getLocalTime(&timeinfo)) return false;
 
   if (!use_night_mode) return false;
-  
+
   int hour = timeinfo.tm_hour;
   return (hour >= NIGHT_MODE_START_HOUR || hour < NIGHT_MODE_END_HOUR);
 }
@@ -977,7 +988,7 @@ void handle_temp_screen_wakeup_timeout(lv_timer_t *timer) {
       activate_night_mode();
     }
   }
-  
+
   if (temp_screen_wakeup_timer) {
     lv_timer_del(temp_screen_wakeup_timer);
     temp_screen_wakeup_timer = nullptr;
@@ -1009,12 +1020,12 @@ void fetch_and_update_weather() {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi no longer connected. Attempting to reconnect...");
     WiFi.disconnect();
-    WiFiManager wm;  
+    WiFiManager wm;
     wm.autoConnect(DEFAULT_CAPTIVE_SSID);
-    delay(1000);  
-    if (WiFi.status() != WL_CONNECTED) { 
+    delay(1000);
+    if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi connection still unavailable.");
-      return;   
+      return;
     }
     Serial.println("WiFi connection reestablished.");
   }
@@ -1080,8 +1091,8 @@ void fetch_and_update_weather() {
         }
 
         lv_label_set_text_fmt(lbl_daily_day[i], "%s", dayStr);
-        lv_label_set_text_fmt(lbl_daily_high[i], "%.0f°%c", mx, unit);
-        lv_label_set_text_fmt(lbl_daily_low[i], "%.0f°%c", mn, unit);
+        lv_label_set_text_fmt(lbl_daily_high[i], "%.0f°", mx);
+        lv_label_set_text_fmt(lbl_daily_low[i], "%.0f°", mn);
         lv_img_set_src(img_daily[i], choose_icon(weather_codes[i].as<int>(), (i == 0) ? is_day : 1));
       }
 
